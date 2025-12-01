@@ -217,6 +217,36 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 'body': json.dumps({'success': True, 'commission': commission}),
                 'isBase64Encoded': False
             }
+        
+        elif action == 'add_clicks':
+            user_id = body_data.get('userId')
+            amount = body_data.get('amount')
+            
+            if not user_id or not amount:
+                cur.close()
+                conn.close()
+                return {
+                    'statusCode': 400,
+                    'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                    'body': json.dumps({'error': 'userId and amount required'}),
+                    'isBase64Encoded': False
+                }
+            
+            cur.execute(
+                "UPDATE user_balances SET crypto_balance = crypto_balance + %s WHERE user_id = %s",
+                (amount, user_id)
+            )
+            
+            conn.commit()
+            cur.close()
+            conn.close()
+            
+            return {
+                'statusCode': 200,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'success': True}),
+                'isBase64Encoded': False
+            }
     
     cur.close()
     conn.close()

@@ -42,11 +42,21 @@ export default function TradingPage({ userId, username, onLogout }: TradingPageP
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [lotteries, setLotteries] = useState<Lottery[]>([]);
   const [loading, setLoading] = useState(false);
+  const [clicks, setClicks] = useState(0);
+  const [isClicking, setIsClicking] = useState(false);
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadTransactions, 5000);
-    return () => clearInterval(interval);
+    const transactionsInterval = setInterval(loadTransactions, 5000);
+    const balanceInterval = setInterval(loadBalance, 3000);
+    const priceInterval = setInterval(loadPrice, 5000);
+    const lotteriesInterval = setInterval(loadLotteries, 10000);
+    return () => {
+      clearInterval(transactionsInterval);
+      clearInterval(balanceInterval);
+      clearInterval(priceInterval);
+      clearInterval(lotteriesInterval);
+    };
   }, []);
 
   const loadData = async () => {
@@ -227,27 +237,17 @@ export default function TradingPage({ userId, username, onLogout }: TradingPageP
             </h1>
             <p className="text-muted-foreground">Привет, {username}!</p>
           </div>
-          <div className="flex gap-2">
-            <Button 
-              variant="outline" 
-              className="gap-2"
-              onClick={() => window.location.href = '/admin'}
-            >
-              <Icon name="Settings" size={18} />
-              Админ
-            </Button>
-            <Button 
-              variant="ghost" 
-              className="gap-2"
-              onClick={onLogout}
-            >
-              <Icon name="LogOut" size={18} />
-              Выйти
-            </Button>
-          </div>
+          <Button 
+            variant="ghost" 
+            className="gap-2"
+            onClick={onLogout}
+          >
+            <Icon name="LogOut" size={18} />
+            Выйти
+          </Button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Card className="bg-card border-primary/20">
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium text-muted-foreground">Текущая цена</CardTitle>
@@ -267,6 +267,51 @@ export default function TradingPage({ userId, username, onLogout }: TradingPageP
               <div className="flex items-center gap-2">
                 <Icon name="Coins" size={20} className="text-secondary" />
                 <span className="text-3xl font-bold">{cryptoBalance.toFixed(4)}</span>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card 
+            className="bg-gradient-to-br from-primary to-secondary cursor-pointer transition-transform hover:scale-105 active:scale-95"
+            onClick={async () => {
+              if (isClicking) return;
+              setIsClicking(true);
+              const newClicks = clicks + 1;
+              setClicks(newClicks);
+              const earned = newClicks * 0.02;
+              
+              try {
+                const response = await fetch(TRADING_API, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    action: 'add_clicks',
+                    userId,
+                    amount: earned
+                  })
+                });
+                if (response.ok) {
+                  await loadBalance();
+                }
+              } catch (error) {
+                console.error('Click error:', error);
+              }
+              
+              setTimeout(() => setIsClicking(false), 100);
+            }}
+          >
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-white">Кликер</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-center space-y-2">
+                <div className="text-5xl">💎</div>
+                <div className="text-white font-bold">
+                  {clicks} кликов
+                </div>
+                <div className="text-xs text-white/80">
+                  +{(clicks * 0.02).toFixed(4)} EE%A
+                </div>
               </div>
             </CardContent>
           </Card>
