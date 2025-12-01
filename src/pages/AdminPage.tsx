@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,15 +16,17 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 
+const ADMIN_API = 'https://functions.poehali.dev/9c029e11-2967-4277-9d91-17aece5c7c23';
+const ADMIN_PASSWORD = 'EE%adminA%%';
+
 interface User {
-  id: string;
+  id: number;
   name: string;
-  balance: number;
   cryptoBalance: number;
 }
 
 interface Promotion {
-  id: string;
+  id: number;
   title: string;
   description: string;
   discount: number;
@@ -32,37 +34,103 @@ interface Promotion {
 }
 
 interface Lottery {
-  id: string;
+  id: number;
   prize: number;
-  participants: string[];
+  winnerId?: number;
   winner?: string;
   active: boolean;
+  participantCount: number;
 }
 
-const ADMIN_PASSWORD = 'EE%adminA%%';
+interface PurchaseRequest {
+  id: number;
+  userId: number;
+  username: string;
+  amount: number;
+  price: number;
+  signature: string;
+  status: string;
+  createdAt: string;
+}
 
 export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
-  const [currentPrice, setCurrentPrice] = useState(42.50);
-  const [newPrice, setNewPrice] = useState('');
-
-  const [users] = useState<User[]>([
-    { id: '1', name: 'Пользователь #1', balance: 1200, cryptoBalance: 15.5 },
-    { id: '2', name: 'Пользователь #2', balance: 850, cryptoBalance: 32.1 },
-    { id: '3', name: 'Пользователь #3', balance: 2100, cryptoBalance: 8.7 },
-  ]);
-
-  const [promotions, setPromotions] = useState<Promotion[]>([
-    { id: '1', title: 'Скидка 10%', description: 'На первую покупку', discount: 10, active: true },
-  ]);
-
-  const [lotteries, setLotteries] = useState<Lottery[]>([
-    { id: '1', prize: 100, participants: ['User1', 'User2', 'User3'], active: true },
-  ]);
-
+  const [currentPrice, setCurrentPrice] = useState('42.50');
+  const [commission, setCommission] = useState('0');
+  const [users, setUsers] = useState<User[]>([]);
+  const [promotions, setPromotions] = useState<Promotion[]>([]);
+  const [lotteries, setLotteries] = useState<Lottery[]>([]);
+  const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
   const [newPromo, setNewPromo] = useState({ title: '', description: '', discount: '' });
   const [newLottery, setNewLottery] = useState({ prize: '' });
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadData();
+      const interval = setInterval(loadPurchaseRequests, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [isAuthenticated]);
+
+  const loadData = async () => {
+    await Promise.all([
+      loadUsers(),
+      loadPromotions(),
+      loadLotteries(),
+      loadPurchaseRequests()
+    ]);
+  };
+
+  const apiCall = async (action: string, method: string = 'GET', body?: any) => {
+    const url = method === 'GET' ? `${ADMIN_API}?action=${action}` : ADMIN_API;
+    const response = await fetch(url, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Admin-Password': ADMIN_PASSWORD
+      },
+      ...(body && { body: JSON.stringify(body) })
+    });
+    return response.json();
+  };
+
+  const loadUsers = async () => {
+    try {
+      const data = await apiCall('users');
+      setUsers(data.users || []);
+    } catch (error) {
+      console.error('Error loading users:', error);
+    }
+  };
+
+  const loadPromotions = async () => {
+    try {
+      const data = await apiCall('promotions');
+      setPromotions(data.promotions || []);
+    } catch (error) {
+      console.error('Error loading promotions:', error);
+    }
+  };
+
+  const loadLotteries = async () => {
+    try {
+      const data = await apiCall('lotteries');
+      setLotteries(data.lotteries || []);
+    } catch (error) {
+      console.error('Error loading lotteries:', error);
+    }
+  };
+
+  const loadPurchaseRequests = async () => {
+    try {
+      const data = await apiCall('purchase_requests');
+      setPurchaseRequests(data.requests || []);
+    } catch (error) {
+      console.error('Error loading purchase requests:', error);
+    }
+  };
 
   const handleLogin = () => {
     if (passwordInput === ADMIN_PASSWORD) {
@@ -73,72 +141,121 @@ export default function AdminPage() {
     }
   };
 
-  const handlePriceChange = () => {
-    const price = parseFloat(newPrice);
-    if (!price || price <= 0) {
-      toast.error('Введите корректную цену');
-      return;
+  const handlePriceChange = async () => {
+    setLoading(true);
+    try {
+      await apiCall('', 'POST', { action: 'set_price', price: currentPrice });
+      toast.success('Цена обновлена');
+    } catch (error) {
+      toast.error('Ошибка при обновлении цены');
+    } finally {
+      setLoading(false);
     }
-    setCurrentPrice(price);
-    setNewPrice('');
-    toast.success(`Цена обновлена: ${price.toFixed(2)} ₽`);
   };
 
-  const handleCreatePromo = () => {
+  const handleCommissionChange = async () => {
+    setLoading(true);
+    try {
+      await apiCall('', 'POST', { action: 'set_commission', commission });
+      toast.success('Комиссия обновлена');
+    } catch (error) {
+      toast.error('Ошибка при обновлении комиссии');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreatePromo = async () => {
     if (!newPromo.title || !newPromo.discount) {
       toast.error('Заполните все поля');
       return;
     }
-    const promo: Promotion = {
-      id: Date.now().toString(),
-      title: newPromo.title,
-      description: newPromo.description,
-      discount: parseFloat(newPromo.discount),
-      active: true
-    };
-    setPromotions([...promotions, promo]);
-    setNewPromo({ title: '', description: '', discount: '' });
-    toast.success('Акция создана');
+    setLoading(true);
+    try {
+      await apiCall('', 'POST', { 
+        action: 'create_promotion',
+        title: newPromo.title,
+        description: newPromo.description,
+        discount: newPromo.discount
+      });
+      toast.success('Акция создана');
+      setNewPromo({ title: '', description: '', discount: '' });
+      await loadPromotions();
+    } catch (error) {
+      toast.error('Ошибка при создании акции');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const togglePromo = (id: string) => {
-    setPromotions(promotions.map(p => 
-      p.id === id ? { ...p, active: !p.active } : p
-    ));
+  const togglePromo = async (promoId: number) => {
+    try {
+      await apiCall('', 'POST', { action: 'toggle_promotion', promoId });
+      await loadPromotions();
+    } catch (error) {
+      toast.error('Ошибка');
+    }
   };
 
-  const handleCreateLottery = () => {
+  const handleCreateLottery = async () => {
     const prize = parseFloat(newLottery.prize);
     if (!prize || prize <= 0) {
       toast.error('Введите корректный приз');
       return;
     }
-    const lottery: Lottery = {
-      id: Date.now().toString(),
-      prize,
-      participants: [],
-      active: true
-    };
-    setLotteries([...lotteries, lottery]);
-    setNewLottery({ prize: '' });
-    toast.success('Розыгрыш создан');
+    setLoading(true);
+    try {
+      await apiCall('', 'POST', { action: 'create_lottery', prize });
+      toast.success('Розыгрыш создан');
+      setNewLottery({ prize: '' });
+      await loadLotteries();
+    } catch (error) {
+      toast.error('Ошибка при создании розыгрыша');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleDrawWinner = (lotteryId: string) => {
-    const lottery = lotteries.find(l => l.id === lotteryId);
-    if (!lottery || lottery.participants.length === 0) {
-      toast.error('Нет участников');
+  const handleDrawWinner = async (lotteryId: number) => {
+    setLoading(true);
+    try {
+      const data = await apiCall('', 'POST', { action: 'draw_winner', lotteryId });
+      toast.success(`Победитель: ${data.winner}`);
+      await loadLotteries();
+    } catch (error: any) {
+      toast.error(error.message || 'Ошибка при розыгрыше');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleApprovePurchase = async (requestId: number, approved: boolean) => {
+    setLoading(true);
+    try {
+      await apiCall('', 'POST', { action: 'approve_purchase', requestId, approved });
+      toast.success(approved ? 'Покупка одобрена' : 'Покупка отклонена');
+      await loadPurchaseRequests();
+      await loadUsers();
+    } catch (error) {
+      toast.error('Ошибка');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRemoveCrypto = async (userId: number, amount: string) => {
+    const amountNum = parseFloat(amount);
+    if (!amountNum || amountNum <= 0) {
+      toast.error('Введите корректное количество');
       return;
     }
-    const winner = lottery.participants[Math.floor(Math.random() * lottery.participants.length)];
-    setLotteries(lotteries.map(l => 
-      l.id === lotteryId ? { ...l, winner, active: false } : l
-    ));
-    toast.success(`Победитель: ${winner}`);
-  };
-
-  const handleRemoveCrypto = (userId: string, amount: number) => {
-    toast.success(`Удалено ${amount} EE%A у пользователя`);
+    try {
+      await apiCall('', 'POST', { action: 'remove_crypto', userId, amount: amountNum });
+      toast.success('Криптовалюта удалена');
+      await loadUsers();
+    } catch (error) {
+      toast.error('Ошибка');
+    }
   };
 
   if (!isAuthenticated) {
@@ -204,27 +321,38 @@ export default function AdminPage() {
         <Card className="bg-card border-primary/20">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Icon name="DollarSign" size={20} />
-              Управление ценой
+              <Icon name="Settings" size={20} />
+              Настройки
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <Label>Текущая цена</Label>
-                <div className="text-3xl font-bold text-primary mt-2">{currentPrice.toFixed(2)} ₽</div>
-              </div>
-              <div className="flex-1 space-y-2">
-                <Label>Новая цена</Label>
-                <div className="flex gap-2">
+          <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <div>
+                <Label>Цена криптовалюты (₽)</Label>
+                <div className="flex gap-2 mt-2">
                   <Input 
                     type="number"
-                    placeholder="0.00"
-                    value={newPrice}
-                    onChange={(e) => setNewPrice(e.target.value)}
+                    value={currentPrice}
+                    onChange={(e) => setCurrentPrice(e.target.value)}
                     className="bg-background"
                   />
-                  <Button onClick={handlePriceChange} className="bg-primary">
+                  <Button onClick={handlePriceChange} disabled={loading}>
+                    Установить
+                  </Button>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <Label>Комиссия (%)</Label>
+                <div className="flex gap-2 mt-2">
+                  <Input 
+                    type="number"
+                    value={commission}
+                    onChange={(e) => setCommission(e.target.value)}
+                    className="bg-background"
+                  />
+                  <Button onClick={handleCommissionChange} disabled={loading}>
                     Установить
                   </Button>
                 </div>
@@ -232,6 +360,58 @@ export default function AdminPage() {
             </div>
           </CardContent>
         </Card>
+
+        {purchaseRequests.length > 0 && (
+          <Card className="bg-card border-yellow-500/20">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Icon name="FileText" size={20} />
+                Заявки на покупку ({purchaseRequests.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {purchaseRequests.map(req => (
+                <div key={req.id} className="p-4 bg-background rounded-lg border border-border space-y-3">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="font-bold">{req.username}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {req.amount} EE%A × {req.price} ₽ = {(req.amount * req.price).toFixed(2)} ₽
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {new Date(req.createdAt).toLocaleString('ru-RU')}
+                      </p>
+                    </div>
+                    <Badge>Ожидает</Badge>
+                  </div>
+                  <div className="p-3 bg-muted rounded text-sm">
+                    <p className="text-xs text-muted-foreground mb-1">Подпись:</p>
+                    <p className="whitespace-pre-wrap">{req.signature}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button 
+                      onClick={() => handleApprovePurchase(req.id, true)}
+                      className="flex-1 bg-success"
+                      disabled={loading}
+                    >
+                      <Icon name="Check" size={18} className="mr-2" />
+                      Одобрить
+                    </Button>
+                    <Button 
+                      onClick={() => handleApprovePurchase(req.id, false)}
+                      variant="destructive"
+                      className="flex-1"
+                      disabled={loading}
+                    >
+                      <Icon name="X" size={18} className="mr-2" />
+                      Отклонить
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="bg-card">
@@ -253,7 +433,7 @@ export default function AdminPage() {
                         </Badge>
                       </div>
                       <p className="text-sm text-muted-foreground">{promo.description}</p>
-                      <p className="text-sm text-primary">Скидка: {promo.discount}%</p>
+                      <p className="text-sm text-primary">Скидка: +{promo.discount}% к покупке</p>
                     </div>
                     <Button 
                       variant="ghost" 
@@ -276,13 +456,13 @@ export default function AdminPage() {
                 <DialogContent className="bg-card">
                   <DialogHeader>
                     <DialogTitle>Новая акция</DialogTitle>
-                    <DialogDescription>Создайте новую акцию для пользователей</DialogDescription>
+                    <DialogDescription>Клиент получит больше криптовалюты при покупке</DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4 pt-4">
                     <div className="space-y-2">
                       <Label>Название</Label>
                       <Input 
-                        placeholder="Скидка 15%"
+                        placeholder="Бонус +15%"
                         value={newPromo.title}
                         onChange={(e) => setNewPromo({...newPromo, title: e.target.value})}
                       />
@@ -290,21 +470,21 @@ export default function AdminPage() {
                     <div className="space-y-2">
                       <Label>Описание</Label>
                       <Textarea 
-                        placeholder="Условия акции..."
+                        placeholder="Получите на 15% больше криптовалюты..."
                         value={newPromo.description}
                         onChange={(e) => setNewPromo({...newPromo, description: e.target.value})}
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label>Скидка (%)</Label>
+                      <Label>Бонус (%)</Label>
                       <Input 
                         type="number"
-                        placeholder="10"
+                        placeholder="15"
                         value={newPromo.discount}
                         onChange={(e) => setNewPromo({...newPromo, discount: e.target.value})}
                       />
                     </div>
-                    <Button onClick={handleCreatePromo} className="w-full">
+                    <Button onClick={handleCreatePromo} className="w-full" disabled={loading}>
                       Создать
                     </Button>
                   </div>
@@ -328,7 +508,7 @@ export default function AdminPage() {
                       <div>
                         <p className="font-medium">Приз: {lottery.prize} EE%A</p>
                         <p className="text-sm text-muted-foreground">
-                          Участников: {lottery.participants.length}
+                          Участников: {lottery.participantCount}
                         </p>
                       </div>
                       <Badge variant={lottery.active ? "default" : "secondary"}>
@@ -346,6 +526,7 @@ export default function AdminPage() {
                         onClick={() => handleDrawWinner(lottery.id)}
                         className="w-full gap-2"
                         size="sm"
+                        disabled={loading}
                       >
                         <Icon name="Shuffle" size={16} />
                         Провести розыгрыш
@@ -377,7 +558,7 @@ export default function AdminPage() {
                         onChange={(e) => setNewLottery({prize: e.target.value})}
                       />
                     </div>
-                    <Button onClick={handleCreateLottery} className="w-full">
+                    <Button onClick={handleCreateLottery} className="w-full" disabled={loading}>
                       Создать
                     </Button>
                   </div>
@@ -391,7 +572,7 @@ export default function AdminPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Icon name="Users" size={20} />
-              Пользователи
+              Пользователи ({users.length})
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -407,10 +588,9 @@ export default function AdminPage() {
                     </div>
                     <div>
                       <p className="font-medium">{user.name}</p>
-                      <div className="flex gap-4 text-sm text-muted-foreground">
-                        <span>₽ {user.balance.toFixed(2)}</span>
-                        <span>EE%A {user.cryptoBalance.toFixed(2)}</span>
-                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        EE%A: {user.cryptoBalance.toFixed(4)}
+                      </p>
                     </div>
                   </div>
                   <Dialog>
@@ -430,11 +610,15 @@ export default function AdminPage() {
                           <Label>Количество EE%A</Label>
                           <Input 
                             type="number"
-                            placeholder={`Доступно: ${user.cryptoBalance.toFixed(2)}`}
+                            placeholder={`Доступно: ${user.cryptoBalance.toFixed(4)}`}
+                            id={`amount-${user.id}`}
                           />
                         </div>
                         <Button 
-                          onClick={() => handleRemoveCrypto(user.id, user.cryptoBalance)}
+                          onClick={() => {
+                            const input = document.getElementById(`amount-${user.id}`) as HTMLInputElement;
+                            handleRemoveCrypto(user.id, input.value);
+                          }}
                           variant="destructive"
                           className="w-full"
                         >

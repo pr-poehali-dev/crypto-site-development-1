@@ -1,0 +1,15 @@
+{
+  "tests": [
+    {
+      "name": "Get current price",
+      "method": "GET",
+      "path": "/?action=price",
+      "expectedStatus": 200,
+      "expectedBody": {
+        "price": "number",
+        "commission": "number"
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}

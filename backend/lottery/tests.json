@@ -1,0 +1,14 @@
+{
+  "tests": [
+    {
+      "name": "Get active lotteries",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200,
+      "expectedBody": {
+        "lotteries": "array"
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}
